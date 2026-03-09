@@ -74,10 +74,78 @@ exit 1
             $stderrPath | Should -Exist
 
             $capture = Get-Content -LiteralPath $capturePath -Raw | ConvertFrom-Json -Depth 10
+            $capture.schema | Should -Be 'lvcompare-capture-v1'
             $capture.exitCode | Should -Be 1
             $capture.diff | Should -BeTrue
             $capture.cliPath | Should -Be 'docker:nationalinstruments/labview:2026q1-linux'
+            $capture.environment.cli.reportPath | Should -Match 'compare-report\.html$'
+            $capture.environment.container.sourceCapturePath | Should -Match 'ni-linux-container-capture\.json$'
             $capture.environment.cli.artifacts.reportSizeBytes | Should -BeGreaterThan 0
+        }
+        finally {
+            Remove-Item Env:COMPAREVI_SCRIPTS_ROOT -ErrorAction SilentlyContinue
+            Remove-Item Env:COMPAREVI_NI_LINUX_IMAGE -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'translates the NI capture even when the runner throws after writing its artifacts' {
+        $toolsRoot = Join-Path $TestDrive 'comparevi-tools'
+        $backendTools = Join-Path $toolsRoot 'tools'
+        $runnerScript = Join-Path $backendTools 'Run-NILinuxContainerCompare.ps1'
+        $outputDir = Join-Path $TestDrive 'out-throw'
+        $baseVi = Join-Path $TestDrive 'ThrowBase.vi'
+        $headVi = Join-Path $TestDrive 'ThrowHead.vi'
+
+        New-Item -ItemType Directory -Path $backendTools -Force | Out-Null
+        Set-Content -LiteralPath $baseVi -Value 'base' -Encoding utf8
+        Set-Content -LiteralPath $headVi -Value 'head' -Encoding utf8
+        Set-Content -LiteralPath $runnerScript -Encoding utf8 -Value @'
+param(
+  [string]$BaseVi,
+  [string]$HeadVi,
+  [string]$Image,
+  [string]$ReportPath,
+  [string]$ReportType,
+  [int]$TimeoutSeconds,
+  [string[]]$Flags,
+  [switch]$PassThru
+)
+$outDir = Split-Path -Parent $ReportPath
+New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+'<html><body><details open><summary class="difference-heading">diff</summary></details></body></html>' | Set-Content -LiteralPath $ReportPath -Encoding utf8
+'stdout' | Set-Content -LiteralPath (Join-Path $outDir 'ni-linux-container-stdout.txt') -Encoding utf8
+'stderr' | Set-Content -LiteralPath (Join-Path $outDir 'ni-linux-container-stderr.txt') -Encoding utf8
+[ordered]@{
+  schema = 'ni-linux-container-compare/v1'
+  command = 'docker run test'
+  exitCode = 1
+  isDiff = $true
+  status = 'diff'
+  reportPath = $ReportPath
+} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $outDir 'ni-linux-container-capture.json') -Encoding utf8
+$global:LASTEXITCODE = 1
+throw 'Cannot bind argument to parameter ''Path'' because it is null.'
+'@
+
+        $env:COMPAREVI_SCRIPTS_ROOT = $toolsRoot
+        $env:COMPAREVI_NI_LINUX_IMAGE = 'nationalinstruments/labview:2026q1-linux'
+        try {
+            & pwsh -NoLogo -NoProfile -File $script:ScriptPath `
+                -BaseVi $baseVi `
+                -HeadVi $headVi `
+                -OutputDir $outputDir `
+                -Quiet
+
+            $LASTEXITCODE | Should -Be 1
+
+            $capturePath = Join-Path $outputDir 'lvcompare-capture.json'
+            $capturePath | Should -Exist
+
+            $capture = Get-Content -LiteralPath $capturePath -Raw | ConvertFrom-Json -Depth 10
+            $capture.exitCode | Should -Be 1
+            $capture.diff | Should -BeTrue
+            $capture.environment.cli.status | Should -Be 'diff'
+            $capture.environment.cli.reportPath | Should -Match 'compare-report\.html$'
         }
         finally {
             Remove-Item Env:COMPAREVI_SCRIPTS_ROOT -ErrorAction SilentlyContinue
