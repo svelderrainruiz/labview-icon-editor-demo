@@ -29,6 +29,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Write-Host ("[hosted-linux-adapter] baseViNull={0} headViNull={1} outputDirNull={2} scriptsRootEnvSet={3}" -f `
+    [string]::IsNullOrWhiteSpace($BaseVi), `
+    [string]::IsNullOrWhiteSpace($HeadVi), `
+    [string]::IsNullOrWhiteSpace($OutputDir), `
+    (-not [string]::IsNullOrWhiteSpace($env:COMPAREVI_SCRIPTS_ROOT)))
+
 function Resolve-AbsolutePath {
     param(
         [Parameter(Mandatory = $true)][string]$PathValue,
@@ -371,6 +377,7 @@ $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $runnerCapture = $null
 $runnerExitCode = 0
 $runnerErrorMessage = $null
+Write-Host ("[hosted-linux-adapter] invoking-runner reportType={0} image={1} reportPath={2}" -f $reportType, $image, $reportPathResolved)
 try {
     $runnerCapture = & $runnerScript @runnerArgs -PassThru
     $lastExit = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
